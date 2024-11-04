@@ -2,7 +2,7 @@ use gilrs::{Event, Gamepad, Gilrs};
 
 mod controller;
 
-use controller::{ControllerState, Button};
+use controller::{Button, ControllerState};
 
 fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
     let mut controller_state = ControllerState::default();
@@ -25,12 +25,12 @@ fn main() {
     }
 
     let mut active_id = gilrs.gamepads().next().unwrap().0;
-    
+
     let mut controller_state = ControllerState::default();
 
     loop {
         let mut changed = false;
-        
+
         let gamepad = gilrs.gamepad(active_id);
         let new_controller_state = convert_gamepad(gamepad);
     }
