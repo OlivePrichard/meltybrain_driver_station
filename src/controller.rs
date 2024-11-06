@@ -92,7 +92,7 @@ impl ControllerState {
         self.right_trigger = (value * 256_f32) as u8;
     }
 
-    pub fn from_bytes(bytes: &[u8; 12]) -> Self {
+    pub fn from_le_bytes(bytes: &[u8; 12]) -> Self {
         let left_stick = StickState::from_bytes(&[bytes[0], bytes[1], bytes[2], bytes[3]]);
         let right_stick = StickState::from_bytes(&[bytes[4], bytes[5], bytes[6], bytes[7]]);
         let buttons = u16::from_le_bytes([bytes[10], bytes[11]]);
@@ -105,7 +105,7 @@ impl ControllerState {
         }
     }
 
-    pub fn to_bytes(&self) -> [u8; 12] {
+    pub fn to_le_bytes(&self) -> [u8; 12] {
         let left_stick = self.left_stick.to_bytes();
         let right_stick = self.right_stick.to_bytes();
         let buttons = self.buttons.to_le_bytes();
