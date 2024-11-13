@@ -88,3 +88,5 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
 pub fn get_controller_state(gilrs: Gilrs, id: GamepadId) -> ControllerState {
     convert_gamepad(gilrs.gamepad(id))
 }
+
+
