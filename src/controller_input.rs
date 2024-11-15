@@ -1,5 +1,10 @@
-use crate::controller::{Button, ControllerState, StickState};
+use crate::shared_code::controller::{Button, ControllerState, StickState};
+
 use gilrs::{Gamepad, GamepadId, Gilrs};
+use tokio::{
+    sync::watch::{Receiver, Sender},
+    time::{sleep_until, Duration, Instant},
+};
 
 fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
     let mut controller_state = ControllerState::default();
@@ -85,8 +90,31 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
     controller_state
 }
 
-pub fn get_controller_state(gilrs: Gilrs, id: GamepadId) -> ControllerState {
+fn get_controller_state(gilrs: &Gilrs, id: GamepadId) -> ControllerState {
+    if !gilrs.gamepad(id).is_connected() {
+        return ControllerState::default();
+    }
     convert_gamepad(gilrs.gamepad(id))
 }
 
+pub async fn read_controllers(
+    cancel_signal: Receiver<bool>,
+    inputs: Sender<(ControllerState, ControllerState)>,
+    gilrs: Gilrs,
+    primary_id: GamepadId,
+    secondary_id: GamepadId,
+) {
+    let mut next_time = Instant::now();
+    let delay = Duration::from_millis(20);
+    while !*cancel_signal.borrow() {
+        sleep_until(next_time).await;
+        next_time += delay;
 
+        let primary = get_controller_state(&gilrs, primary_id);
+        let secondary = get_controller_state(&gilrs, secondary_id);
+        if inputs.send((primary, secondary)).is_err() {
+            println!("Failed to send controller inputs");
+            break;
+        }
+    }
+}

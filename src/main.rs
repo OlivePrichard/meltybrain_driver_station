@@ -1,61 +1,17 @@
-use gilrs::{GamepadId, Gilrs};
-use tokio::{
-    io::Result,
-    net::UdpSocket,
-    task::yield_now,
-    time::{sleep, Duration, Instant},
-};
-
-mod controller;
 mod controller_input;
 mod logging;
-mod packet_formatting;
+mod networking;
+mod shared_code;
 
-use controller::{Button, ControllerState, StickState};
+use shared_code::controller::ControllerState;
 
-async fn sender() -> Result<()> {
-    let socket = UdpSocket::bind("0.0.0.0:55440").await?;
+use gilrs::{GamepadId, Gilrs};
+use tokio::{
+    io::{AsyncBufReadExt, Result},
+    sync::{mpsc, watch},
+};
 
-    let remote_addr = "192.168.169.113:55440";
-    socket.connect(remote_addr).await?;
-
-    let mut counter: u32 = 0;
-    let delay = Duration::from_millis(1000);
-    loop {
-        sleep(delay).await;
-        println!("Sending data: {counter}");
-        let data = counter.to_le_bytes();
-        let start = Instant::now();
-        let len = socket.send(&data).await?;
-        println!("Sent {len} bytes");
-        counter += 1;
-
-        let mut buf = [0u8; 32];
-        let len = socket.recv(&mut buf).await?;
-        let end = Instant::now();
-        println!("Received bytes: {:02X?}", &buf[..len]);
-        let round_trip = end - start;
-        println!("Round trip took {} ms", round_trip.as_millis());
-    }
-}
-
-async fn listener() -> Result<()> {
-    let socket = UdpSocket::bind("0.0.0.0:55441").await?;
-
-    let remote_addr = "192.168.2.1:55440";
-    socket.connect(remote_addr).await?;
-
-    loop {
-        let mut buf = [0u8; 32];
-        let len = socket.recv(&mut buf).await?;
-        println!("Received bytes: {:02X?}", &buf[..len]);
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    let mut gilrs = Gilrs::new().unwrap();
-
+fn get_gamepads(gilrs: &mut Gilrs) -> (GamepadId, GamepadId) {
     println!("Press X on primary gamepad");
 
     let primary_gamepad = loop {
@@ -84,11 +40,52 @@ async fn main() -> Result<()> {
         }
     };
 
-    // logging::log_data().await
-    tokio::spawn(sender());
-    tokio::spawn(listener());
-    
+    (primary_gamepad, secondary_gamepad)
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    let (controller_tx, controller_rx) =
+        watch::channel((ControllerState::default(), ControllerState::default()));
+    let (log_tx, log_rx) = mpsc::channel(1024 * 16);
+
+    let mut gilrs = Gilrs::new().unwrap();
+    let (primary_id, secondary_id) = get_gamepads(&mut gilrs);
+
+    let input_handle = tokio::spawn(controller_input::read_controllers(
+        cancel_rx.clone(),
+        controller_tx,
+        gilrs,
+        primary_id,
+        secondary_id,
+    ));
+    let networking_handle = tokio::spawn(networking::handle_networking(
+        cancel_rx.clone(),
+        controller_rx,
+        log_tx,
+    ));
+    let logging_handle = tokio::spawn(logging::log_data(log_rx));
+
+    let stdin = tokio::io::stdin();
+    let mut reader = tokio::io::BufReader::new(stdin);
+    let mut buf = String::new();
+
     loop {
-        yield_now().await;
+        reader.read_line(&mut buf).await?;
+        if buf.trim() == "exit" {
+            break;
+        }
+        buf.clear();
     }
+    match cancel_tx.send(true) {
+        Ok(_) => println!("Stopping!"),
+        Err(_) => eprintln!("Already stopped!"),
+    }
+
+    input_handle.await?;
+    networking_handle.await??;
+    logging_handle.await??;
+
+    Ok(())
 }

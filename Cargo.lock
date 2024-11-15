@@ -2997,6 +2997,7 @@ dependencies = [
  "chrono",
  "fixed 1.28.0",
  "gilrs",
+ "itertools 0.13.0",
  "postcard",
  "rerun",
  "serde",
