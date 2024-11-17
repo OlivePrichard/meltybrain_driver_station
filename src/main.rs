@@ -7,36 +7,64 @@ use shared_code::controller::ControllerState;
 
 use gilrs::{GamepadId, Gilrs};
 use tokio::{
-    io::{AsyncBufReadExt, Result},
-    sync::{mpsc, watch},
+    io::{stdin, AsyncBufReadExt, BufReader, Result, Stdin}, join, sync::{mpsc, watch}
 };
 
-fn get_gamepads(gilrs: &mut Gilrs) -> (GamepadId, GamepadId) {
+async fn read_line() -> Result<String> {
+    let mut buf = String::new();
+    let mut input = BufReader::new(stdin());
+    input.read_line(&mut buf).await?;
+    Ok(buf)
+}
+
+async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId>) {
     println!("Press X on primary gamepad");
+
+    let mut possible_input = tokio::spawn(read_line());
 
     let primary_gamepad = loop {
         if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
             match event {
                 gilrs::EventType::ButtonPressed(gilrs::Button::South, _) => {
                     println!("Primary gamepad connected");
-                    break id;
+                    break Some(id);
                 }
                 _ => (),
             }
         }
+
+        if possible_input.is_finished() {
+            if let Ok(Ok(input)) = possible_input.await {
+                if input.trim() == "skip" {
+                    break None;
+                }
+            }
+            possible_input = tokio::spawn(read_line());
+        }
     };
 
     println!("Press ○ on secondary gamepad");
+
+    possible_input = tokio::spawn(read_line());
 
     let secondary_gamepad = loop {
         if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
             match event {
                 gilrs::EventType::ButtonPressed(gilrs::Button::East, _) => {
                     println!("Secondary gamepad connected");
-                    break id;
+                    break Some(id);
                 }
                 _ => (),
             }
+        }
+
+        if possible_input.is_finished() {
+            if let Ok(Ok(input)) = possible_input.await {
+                if input.trim() == "skip" {
+                    break None;
+                }
+            }
+            possible_input = tokio::spawn(read_line());
         }
     };
 
@@ -51,7 +79,7 @@ async fn main() -> Result<()> {
     let (log_tx, log_rx) = mpsc::channel(1024 * 16);
 
     let mut gilrs = Gilrs::new().unwrap();
-    let (primary_id, secondary_id) = get_gamepads(&mut gilrs);
+    let (primary_id, secondary_id) = get_gamepads(&mut gilrs).await;
 
     let input_handle = tokio::spawn(controller_input::read_controllers(
         cancel_rx.clone(),
@@ -67,20 +95,15 @@ async fn main() -> Result<()> {
     ));
     let logging_handle = tokio::spawn(logging::log_data(log_rx));
 
-    let stdin = tokio::io::stdin();
-    let mut reader = tokio::io::BufReader::new(stdin);
-    let mut buf = String::new();
-
     loop {
-        reader.read_line(&mut buf).await?;
-        if buf.trim() == "exit" {
+        let input = read_line().await?;
+        if input.trim() == "exit" {
             break;
         }
-        buf.clear();
     }
     match cancel_tx.send(true) {
         Ok(_) => println!("Stopping!"),
-        Err(_) => eprintln!("Already stopped!"),
+        Err(_) => println!("Already stopped!"),
     }
 
     input_handle.await?;
