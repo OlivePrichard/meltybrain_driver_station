@@ -7,7 +7,7 @@ use shared_code::controller::ControllerState;
 
 use gilrs::{GamepadId, Gilrs};
 use tokio::{
-    io::{stdin, AsyncBufReadExt, BufReader, Result, Stdin}, join, sync::{mpsc, watch}
+    io::{stdin, AsyncBufReadExt, BufReader, Result}, sync::{mpsc, watch}
 };
 
 async fn read_line() -> Result<String> {

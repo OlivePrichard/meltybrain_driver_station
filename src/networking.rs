@@ -1,5 +1,5 @@
 use crate::shared_code::{
-    controller::ControllerState, log_messages::LogIterator, message_format::Message,
+    controller::ControllerState, log_messages::LogIterator, message_format::{Message, MessageIter},
 };
 
 use itertools::Itertools;
@@ -133,17 +133,17 @@ async fn receiver(
                             log_queue.push_front(None);
                         }
                         next_packet = id + 1;
-                        log_queue.push_front(Some(parse_log_data(buf)));
+                        log_queue.push_front(Some(parse_log_data(id, buf)));
                     }
                     if id < next_packet {
                         let mut logs = missing_logs.lock().await;
                         if let Some(i) = logs.iter().position(|&x| x == id) {
                             logs.remove(i);
                             log_queue[next_packet as usize - id as usize - 1] =
-                                Some(parse_log_data(buf));
+                                Some(parse_log_data(id, buf));
                         }
                     } else {
-                        log_queue.push_front(Some(parse_log_data(buf)));
+                        log_queue.push_front(Some(parse_log_data(id, buf)));
                         next_packet += 1;
                     }
                 }
@@ -155,7 +155,7 @@ async fn receiver(
                     if let Some(&i) = logs.iter().find(|&&x| x == id) {
                         logs.remove(i as usize);
                         log_queue[next_packet as usize - id as usize - 1] =
-                            Some(format!("Missed log {}", id));
+                            Some(format!("Lost log packet {}", id));
                     }
                 }
             };
@@ -182,9 +182,9 @@ async fn receiver(
     Ok(())
 }
 
-fn parse_log_data(data: &[u8]) -> String {
+fn parse_log_data(id: u32, data: &[u8]) -> String {
     let mut data_copy = data.to_vec();
-    LogIterator::new(&mut data_copy)
+    format!("Packet {}:\n{}", id, LogIterator::new(&mut data_copy)
         .map(|log| {
             format!(
                 "[{}:{:02}.{:09}]: {}",
@@ -194,38 +194,5 @@ fn parse_log_data(data: &[u8]) -> String {
                 log.log.to_string()
             )
         })
-        .join("\n")
-}
-
-struct MessageIter<'a> {
-    buffer: &'a [u8],
-    index: usize,
-}
-
-impl<'a> MessageIter<'a> {
-    fn new(buffer: &'a [u8]) -> Self {
-        Self { buffer, index: 0 }
-    }
-}
-
-impl<'a> Iterator for MessageIter<'a> {
-    type Item = Message<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        Some(loop {
-            if self.buffer.len() == self.index {
-                return None;
-            }
-
-            let (len, data) = Message::from_le_bytes(&self.buffer[self.index..]);
-            self.index += len;
-            if let Some(message) = data {
-                break message;
-            }
-            println!(
-                "Got {len} bytes of nonsense: {:02X?}",
-                &self.buffer[self.index - len..self.index]
-            );
-        })
-    }
+        .join("\n"))
 }
