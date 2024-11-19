@@ -97,7 +97,7 @@ fn get_controller_state(gilrs: &Gilrs, id: Option<GamepadId>) -> ControllerState
     if !gilrs.gamepad(id).is_connected() {
         return ControllerState::default();
     }
-    
+
     convert_gamepad(gilrs.gamepad(id))
 }
 
@@ -109,7 +109,7 @@ pub async fn read_controllers(
     secondary_id: Option<GamepadId>,
 ) {
     let mut next_time = Instant::now();
-    let delay = Duration::from_millis(20);
+    let delay = Duration::from_millis(1000);
     while !*cancel_signal.borrow() {
         sleep_until(next_time).await;
         next_time += delay;

@@ -7,66 +7,64 @@ use shared_code::controller::ControllerState;
 
 use gilrs::{GamepadId, Gilrs};
 use tokio::{
-    io::{stdin, AsyncBufReadExt, BufReader, Result}, sync::{mpsc, watch}
+    io::{stdin, AsyncBufReadExt, BufReader, Result},
+    sync::{mpsc, watch},
 };
 
-async fn read_line() -> Result<String> {
-    let mut buf = String::new();
-    let mut input = BufReader::new(stdin());
-    input.read_line(&mut buf).await?;
-    Ok(buf)
-}
+// async fn skip_gamepad(input: &mut BufReader<Stdin>) {
+//     let mut buf = String::new();
+//     loop {
+//         input.read_line(&mut buf).await.unwrap();
+//         if buf.trim() == "skip" {
+//             return;
+//         }
+//     }
+// }
 
 async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId>) {
+    // let mut input = BufReader::new(stdin());
+
     println!("Press X on primary gamepad");
 
-    let mut possible_input = tokio::spawn(read_line());
-
-    let primary_gamepad = loop {
-        if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
-            match event {
-                gilrs::EventType::ButtonPressed(gilrs::Button::South, _) => {
-                    println!("Primary gamepad connected");
-                    break Some(id);
-                }
-                _ => (),
-            }
-        }
-
-        if possible_input.is_finished() {
-            if let Ok(Ok(input)) = possible_input.await {
-                if input.trim() == "skip" {
-                    break None;
+    let primary_gamepad_future = async {
+        loop {
+            if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
+                match event {
+                    gilrs::EventType::ButtonPressed(gilrs::Button::South, _) => {
+                        println!("Primary gamepad connected");
+                        break id;
+                    }
+                    _ => (),
                 }
             }
-            possible_input = tokio::spawn(read_line());
         }
     };
+    let primary_gamepad = Some(primary_gamepad_future.await);
+    // select! {
+    //     id = primary_gamepad_future => primary_gamepad = Some(id),
+    //     () = skip_gamepad(&mut input) => primary_gamepad = None,
+    // }
 
     println!("Press ○ on secondary gamepad");
 
-    possible_input = tokio::spawn(read_line());
-
-    let secondary_gamepad = loop {
-        if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
-            match event {
-                gilrs::EventType::ButtonPressed(gilrs::Button::East, _) => {
-                    println!("Secondary gamepad connected");
-                    break Some(id);
-                }
-                _ => (),
-            }
-        }
-
-        if possible_input.is_finished() {
-            if let Ok(Ok(input)) = possible_input.await {
-                if input.trim() == "skip" {
-                    break None;
+    let secondary_gamepad_future = async {
+        loop {
+            if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
+                match event {
+                    gilrs::EventType::ButtonPressed(gilrs::Button::East, _) => {
+                        println!("Secondary gamepad connected");
+                        break id;
+                    }
+                    _ => (),
                 }
             }
-            possible_input = tokio::spawn(read_line());
         }
     };
+    let secondary_gamepad = Some(secondary_gamepad_future.await);
+    // select! {
+    //     id = secondary_gamepad_future => secondary_gamepad = Some(id),
+    //     () = skip_gamepad(&mut input) => secondary_gamepad = None,
+    // }
 
     (primary_gamepad, secondary_gamepad)
 }
@@ -95,11 +93,17 @@ async fn main() -> Result<()> {
     ));
     let logging_handle = tokio::spawn(logging::log_data(log_rx));
 
+    println!("Started");
+
+    let mut input = BufReader::new(stdin());
+    let mut buf = String::new();
     loop {
-        let input = read_line().await?;
-        if input.trim() == "exit" {
+        input.read_line(&mut buf).await?;
+        println!("{}", buf);
+        if buf.trim() == "exit" {
             break;
         }
+        buf.clear();
     }
     match cancel_tx.send(true) {
         Ok(_) => println!("Stopping!"),

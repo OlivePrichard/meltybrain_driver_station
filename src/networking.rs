@@ -1,5 +1,7 @@
 use crate::shared_code::{
-    controller::ControllerState, log_messages::LogIterator, message_format::{Message, MessageIter},
+    controller::ControllerState,
+    log_messages::LogIterator,
+    message_format::{Message, MessageIter},
 };
 
 use itertools::Itertools;
@@ -15,10 +17,10 @@ pub async fn handle_networking(
     logging: Sender<String>,
 ) -> Result<()> {
     // let mut socket = UdpSocket::bind("0.0.0.0").await?;
-    let socket = UdpSocket::bind("0.0.0.0:55440").await?;
+    let socket = UdpSocket::bind("0.0.0.0:0").await?;
 
-    // socket.connect("192.168.2.1:55440").await?;
-    socket.connect("127.0.0.1:55440").await?;
+    socket.connect("192.168.2.1:55440").await?;
+    // socket.connect("127.0.0.1:55440").await?;
 
     let socket = Arc::new(socket);
 
@@ -124,6 +126,7 @@ async fn receiver(
             match message {
                 Message::ControllerData(..) => {
                     println!("How did this even happen?");
+                    panic!();
                 }
                 Message::LogData(id, buf) => {
                     if id > next_packet {
@@ -184,15 +187,20 @@ async fn receiver(
 
 fn parse_log_data(id: u32, data: &[u8]) -> String {
     let mut data_copy = data.to_vec();
-    format!("Packet {}:\n{}", id, LogIterator::new(&mut data_copy)
-        .map(|log| {
-            format!(
-                "[{}:{:02}.{:09}]: {}",
-                log.time.as_secs() / 60,
-                log.time.as_secs() % 60,
-                log.time.subsec_nanos(),
-                log.log.to_string()
-            )
-        })
-        .join("\n"))
+    format!(
+        "Packet {}:\n{}\n",
+        id,
+        LogIterator::new(&mut data_copy)
+            .map(|log| {
+                format!(
+                    "[{}:{:02}.{:03}_{:03}]: {}",
+                    log.time.as_secs() / 60,
+                    log.time.as_secs() % 60,
+                    log.time.subsec_millis(),
+                    log.time.subsec_micros() % 100,
+                    log.log.to_string()
+                )
+            })
+            .join("\n")
+    )
 }
