@@ -40,10 +40,6 @@ async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId
         }
     };
     let primary_gamepad = Some(primary_gamepad_future.await);
-    // select! {
-    //     id = primary_gamepad_future => primary_gamepad = Some(id),
-    //     () = skip_gamepad(&mut input) => primary_gamepad = None,
-    // }
 
     println!("Press ○ on secondary gamepad");
 
@@ -61,10 +57,6 @@ async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId
         }
     };
     let secondary_gamepad = Some(secondary_gamepad_future.await);
-    // select! {
-    //     id = secondary_gamepad_future => secondary_gamepad = Some(id),
-    //     () = skip_gamepad(&mut input) => secondary_gamepad = None,
-    // }
 
     (primary_gamepad, secondary_gamepad)
 }
@@ -111,8 +103,11 @@ async fn main() -> Result<()> {
     }
 
     input_handle.await?;
+    println!("Input stopped");
     networking_handle.await??;
+    println!("Networking stopped");
     logging_handle.await??;
+    println!("Logging stopped");
 
     Ok(())
 }

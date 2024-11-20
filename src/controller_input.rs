@@ -92,9 +92,11 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
 
 fn get_controller_state(gilrs: &Gilrs, id: Option<GamepadId>) -> ControllerState {
     let Some(id) = id else {
+        println!("1");
         return ControllerState::default();
     };
     if !gilrs.gamepad(id).is_connected() {
+        println!("2");
         return ControllerState::default();
     }
 
@@ -104,18 +106,22 @@ fn get_controller_state(gilrs: &Gilrs, id: Option<GamepadId>) -> ControllerState
 pub async fn read_controllers(
     cancel_signal: Receiver<bool>,
     inputs: Sender<(ControllerState, ControllerState)>,
-    gilrs: Gilrs,
+    mut gilrs: Gilrs,
     primary_id: Option<GamepadId>,
     secondary_id: Option<GamepadId>,
 ) {
     let mut next_time = Instant::now();
-    let delay = Duration::from_millis(1000);
+    let delay = Duration::from_millis(20);
     while !*cancel_signal.borrow() {
         sleep_until(next_time).await;
+
         next_time += delay;
+        
+        while gilrs.next_event().is_some() {}
 
         let primary = get_controller_state(&gilrs, primary_id);
         let secondary = get_controller_state(&gilrs, secondary_id);
+        // println!("Primary: {}", primary.left_stick.get_y());
         if inputs.send((primary, secondary)).is_err() {
             println!("Failed to send controller inputs");
             break;
