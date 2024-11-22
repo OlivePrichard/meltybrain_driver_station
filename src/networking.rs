@@ -1,13 +1,11 @@
-use crate::{logging::log_data, shared_code::{
-    controller::ControllerState, log_messages::Log, message_format::Message
-}};
+use crate::{
+    logging::log_data,
+    shared_code::{controller::ControllerState, log_messages::Log, message_format::Message},
+};
 
 use itertools::Itertools;
 use std::{io::Result, sync::Arc};
-use tokio::{
-    net::UdpSocket,
-    sync::watch::Receiver,
-};
+use tokio::{net::UdpSocket, sync::watch::Receiver};
 
 pub async fn handle_networking(
     cancel_signal: Receiver<bool>,
@@ -23,16 +21,8 @@ pub async fn handle_networking(
 
     let logs = Vec::new();
 
-    let receiver_handle = tokio::spawn(receiver(
-        cancel_signal.clone(),
-        socket.clone(),
-        logs,
-    ));
-    let sender_handle = tokio::spawn(sender(
-        cancel_signal.clone(),
-        socket.clone(),
-        inputs,
-    ));
+    let receiver_handle = tokio::spawn(receiver(cancel_signal.clone(), socket.clone(), logs));
+    let sender_handle = tokio::spawn(sender(cancel_signal.clone(), socket.clone(), inputs));
 
     receiver_handle.await??;
     sender_handle.await??;
@@ -55,7 +45,8 @@ async fn sender(
         }
         let controllers = *inputs.borrow_and_update();
 
-        let length = Message::ControllerData(0, ControllerState::default(), ControllerState::default())
+        let length =
+            Message::ControllerData(0, ControllerState::default(), ControllerState::default())
                 .buffer_len();
         buffer.resize(length, 0u8);
         let buf = buffer.as_mut_slice();
@@ -108,16 +99,23 @@ async fn receiver(
         if logs.len() <= id as usize {
             logs.resize(id as usize + 1, None);
         }
-        logs[id as usize] = Some(format!("Packet {}:\n{}\n", id, message_vec.into_iter().map(|log| {
-            format!(
-                "[{}:{:02}.{:03}_{:03}]: {}",
-                log.time.as_secs() / 60,
-                log.time.as_secs() % 60,
-                log.time.subsec_millis(),
-                log.time.subsec_micros() % 100,
-                log.log.to_string()
-            )
-        }).join("\n")));
+        logs[id as usize] = Some(format!(
+            "Packet {}:\n{}\n",
+            id,
+            message_vec
+                .into_iter()
+                .map(|log| {
+                    format!(
+                        "[{}:{:02}.{:03}_{:03}]: {}",
+                        log.time.as_secs() / 60,
+                        log.time.as_secs() % 60,
+                        log.time.subsec_millis(),
+                        log.time.subsec_micros() % 100,
+                        log.log.to_string()
+                    )
+                })
+                .join("\n")
+        ));
     }
 
     log_data(logs).await?;

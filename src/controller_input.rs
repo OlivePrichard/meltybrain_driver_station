@@ -61,12 +61,12 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
 
     controller_state.set_left_trigger(
         gamepad
-            .axis_data(gilrs::Axis::LeftZ)
+            .button_data(gilrs::Button::LeftTrigger2)
             .map_or(0f32, |axis| axis.value()),
     );
     controller_state.set_right_trigger(
         gamepad
-            .axis_data(gilrs::Axis::RightZ)
+            .button_data(gilrs::Button::RightTrigger2)
             .map_or(0f32, |axis| axis.value()),
     );
 
@@ -92,11 +92,11 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
 
 fn get_controller_state(gilrs: &Gilrs, id: Option<GamepadId>) -> ControllerState {
     let Some(id) = id else {
-        println!("1");
+        println!("No gamepad id!");
         return ControllerState::default();
     };
     if !gilrs.gamepad(id).is_connected() {
-        println!("2");
+        println!("Gamepad not connected!");
         return ControllerState::default();
     }
 
@@ -116,12 +116,11 @@ pub async fn read_controllers(
         sleep_until(next_time).await;
 
         next_time += delay;
-        
+
         while gilrs.next_event().is_some() {}
 
         let primary = get_controller_state(&gilrs, primary_id);
         let secondary = get_controller_state(&gilrs, secondary_id);
-        // println!("Primary: {}", primary.left_stick.get_y());
         if inputs.send((primary, secondary)).is_err() {
             println!("Failed to send controller inputs");
             break;
