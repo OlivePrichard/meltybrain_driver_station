@@ -1,20 +1,17 @@
-use crate::shared_code::{
-    controller::ControllerState,
-    log_messages::LogIterator,
-    message_format::{Message, MessageIter},
-};
+use crate::{logging::log_data, shared_code::{
+    controller::ControllerState, log_messages::Log, message_format::Message
+}};
 
 use itertools::Itertools;
-use std::{collections::VecDeque, io::Result, sync::Arc};
+use std::{io::Result, sync::Arc};
 use tokio::{
     net::UdpSocket,
-    sync::{mpsc::Sender, watch::Receiver, Mutex},
+    sync::watch::Receiver,
 };
 
 pub async fn handle_networking(
     cancel_signal: Receiver<bool>,
     inputs: Receiver<(ControllerState, ControllerState)>,
-    logging: Sender<String>,
 ) -> Result<()> {
     // let mut socket = UdpSocket::bind("0.0.0.0").await?;
     let socket = UdpSocket::bind("0.0.0.0:0").await?;
@@ -24,18 +21,16 @@ pub async fn handle_networking(
 
     let socket = Arc::new(socket);
 
-    let missing_logs = Arc::new(Mutex::new(VecDeque::new()));
+    let logs = Vec::new();
 
     let receiver_handle = tokio::spawn(receiver(
         cancel_signal.clone(),
         socket.clone(),
-        missing_logs.clone(),
-        logging,
+        logs,
     ));
     let sender_handle = tokio::spawn(sender(
         cancel_signal.clone(),
         socket.clone(),
-        missing_logs.clone(),
         inputs,
     ));
 
@@ -48,7 +43,6 @@ pub async fn handle_networking(
 async fn sender(
     cancel_signal: Receiver<bool>,
     socket: Arc<UdpSocket>,
-    missing_logs: Arc<Mutex<VecDeque<u32>>>,
     mut inputs: Receiver<(ControllerState, ControllerState)>,
 ) -> Result<()> {
     let mut controller_message_counter = 0;
@@ -61,9 +55,7 @@ async fn sender(
         }
         let controllers = *inputs.borrow_and_update();
 
-        let logs = missing_logs.lock().await;
-        let length = logs.len() * Message::MissedLogData(0).buffer_len()
-            + Message::ControllerData(0, ControllerState::default(), ControllerState::default())
+        let length = Message::ControllerData(0, ControllerState::default(), ControllerState::default())
                 .buffer_len();
         buffer.resize(length, 0u8);
         let buf = buffer.as_mut_slice();
@@ -74,36 +66,8 @@ async fn sender(
         controller_message_counter += 1;
         len += message.to_le_bytes(&mut buf[len..]) as usize;
 
-        for id in logs.iter() {
-            let message = Message::MissedLogData(*id);
-            len += message.to_le_bytes(&mut buf[len..]) as usize;
-        }
-        drop(logs);
-
         socket.send(&buf[..len]).await?;
     }
-
-    // let timeout = Instant::now() + Duration::from_secs(5);
-    // while Instant::now() < timeout {
-    //     tokio::time::sleep(Duration::from_millis(100)).await;
-
-    //     let logs = missing_logs.lock().await;
-    //     if logs.is_empty() {
-    //         continue;
-    //     }
-    //     let length = logs.len() * Message::MissedLogData(0).buffer_len();
-    //     buffer.resize(length, 0u8);
-    //     let buf = buffer.as_mut_slice();
-    //     let mut len = 0;
-
-    //     for id in logs.iter() {
-    //         let message = Message::MissedLogData(*id);
-    //         len += message.to_le_bytes(&mut buf[len..]) as usize;
-    //     }
-    //     drop(logs);
-
-    //     socket.send(&buf[..len]).await?;
-    // }
 
     Ok(())
 }
@@ -111,96 +75,52 @@ async fn sender(
 async fn receiver(
     cancel_signal: Receiver<bool>,
     socket: Arc<UdpSocket>,
-    missing_logs: Arc<Mutex<VecDeque<u32>>>,
-    logging: Sender<String>,
+    mut logs: Vec<Option<String>>,
 ) -> Result<()> {
     let buffer = &mut [0u8; 0x1_00_00]; // Buffer is larger than the maximum sized UDP packet
 
-    let mut next_packet = 0;
-
-    let mut log_queue = VecDeque::new();
-
     while !*cancel_signal.borrow() {
         let len = socket.recv(buffer).await?;
-        for message in MessageIter::new(&buffer[..len]) {
-            match message {
-                Message::ControllerData(..) => {
-                    println!("How did this even happen?");
-                    panic!();
-                }
-                Message::LogData(id, buf) => {
-                    if id > next_packet {
-                        let mut logs = missing_logs.lock().await;
-                        for i in next_packet..id {
-                            logs.push_back(i);
-                            log_queue.push_front(None);
-                        }
-                        next_packet = id + 1;
-                        log_queue.push_front(Some(parse_log_data(id, buf)));
-                    }
-                    if id < next_packet {
-                        let mut logs = missing_logs.lock().await;
-                        if let Some(i) = logs.iter().position(|&x| x == id) {
-                            logs.remove(i);
-                            log_queue[next_packet as usize - id as usize - 1] =
-                                Some(parse_log_data(id, buf));
-                        }
-                    } else {
-                        log_queue.push_front(Some(parse_log_data(id, buf)));
-                        next_packet += 1;
-                    }
-                }
-                Message::MissedLogData(..) => {
-                    println!("You're using messages wrong.");
-                }
-                Message::ForgotLogData(id) => {
-                    let mut logs = missing_logs.lock().await;
-                    if let Some(&i) = logs.iter().find(|&&x| x == id) {
-                        logs.remove(i as usize);
-                        log_queue[next_packet as usize - id as usize - 1] =
-                            Some(format!("Lost log packet {}", id));
-                    }
-                }
-            };
-        }
-
-        while let Some(Some(_)) = log_queue.back() {
-            let log = log_queue.pop_back().unwrap().unwrap();
-            if logging.capacity() == 0 {
+        let id = u32::from_le_bytes(buffer[0..4].try_into().unwrap());
+        let mut data = &buffer[4..len];
+        let mut message_vec = Vec::new();
+        while !data.is_empty() {
+            if data.len() < 6 {
                 break;
             }
-            _ = logging.send(log).await;
+            let length = data[0] as usize;
+            let log = Log::from_bytes(&data);
+            match log {
+                Some(log) => {
+                    message_vec.push(log);
+                    data = &data[length..];
+                }
+                None => {
+                    if data.len() <= length {
+                        break;
+                    } else {
+                        data = &data[length..];
+                    }
+                }
+            }
         }
+
+        if logs.len() <= id as usize {
+            logs.resize(id as usize + 1, None);
+        }
+        logs[id as usize] = Some(format!("Packet {}:\n{}\n", id, message_vec.into_iter().map(|log| {
+            format!(
+                "[{}:{:02}.{:03}_{:03}]: {}",
+                log.time.as_secs() / 60,
+                log.time.as_secs() % 60,
+                log.time.subsec_millis(),
+                log.time.subsec_micros() % 100,
+                log.log.to_string()
+            )
+        }).join("\n")));
     }
 
-    for (log, id) in log_queue.into_iter().zip((0..next_packet).rev()) {
-        _ = logging
-            .send(match log {
-                Some(data) => data,
-                None => format!("Missed log {}", id),
-            })
-            .await;
-    }
+    log_data(logs).await?;
 
     Ok(())
-}
-
-fn parse_log_data(id: u32, data: &[u8]) -> String {
-    let mut data_copy = data.to_vec();
-    format!(
-        "Packet {}:\n{}\n",
-        id,
-        LogIterator::new(&mut data_copy)
-            .map(|log| {
-                format!(
-                    "[{}:{:02}.{:03}_{:03}]: {}",
-                    log.time.as_secs() / 60,
-                    log.time.as_secs() % 60,
-                    log.time.subsec_millis(),
-                    log.time.subsec_micros() % 100,
-                    log.log.to_string()
-                )
-            })
-            .join("\n")
-    )
 }

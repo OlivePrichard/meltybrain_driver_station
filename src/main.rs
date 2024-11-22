@@ -8,18 +8,8 @@ use shared_code::controller::ControllerState;
 use gilrs::{GamepadId, Gilrs};
 use tokio::{
     io::{stdin, AsyncBufReadExt, BufReader, Result},
-    sync::{mpsc, watch},
+    sync::watch,
 };
-
-// async fn skip_gamepad(input: &mut BufReader<Stdin>) {
-//     let mut buf = String::new();
-//     loop {
-//         input.read_line(&mut buf).await.unwrap();
-//         if buf.trim() == "skip" {
-//             return;
-//         }
-//     }
-// }
 
 async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId>) {
     // let mut input = BufReader::new(stdin());
@@ -66,7 +56,6 @@ async fn main() -> Result<()> {
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let (controller_tx, controller_rx) =
         watch::channel((ControllerState::default(), ControllerState::default()));
-    let (log_tx, log_rx) = mpsc::channel(1024 * 16);
 
     let mut gilrs = Gilrs::new().unwrap();
     let (primary_id, secondary_id) = get_gamepads(&mut gilrs).await;
@@ -81,9 +70,7 @@ async fn main() -> Result<()> {
     let networking_handle = tokio::spawn(networking::handle_networking(
         cancel_rx.clone(),
         controller_rx,
-        log_tx,
     ));
-    let logging_handle = tokio::spawn(logging::log_data(log_rx));
 
     println!("Started");
 
@@ -106,8 +93,6 @@ async fn main() -> Result<()> {
     println!("Input stopped");
     networking_handle.await??;
     println!("Networking stopped");
-    logging_handle.await??;
-    println!("Logging stopped");
 
     Ok(())
 }
