@@ -1,5 +1,4 @@
 mod controller_input;
-mod logging;
 mod networking;
 mod shared_code;
 
@@ -11,13 +10,10 @@ use tokio::{
     sync::watch,
 };
 
-async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId>) {
-    // let mut input = BufReader::new(stdin());
-
+async fn get_gamepads(gilrs: &mut Gilrs) -> (GamepadId, GamepadId) {
     println!("Press X on primary gamepad");
 
-    let primary_gamepad_future = async {
-        loop {
+    let primary_gamepad = loop {
             if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
                 match event {
                     gilrs::EventType::ButtonPressed(gilrs::Button::South, _) => {
@@ -27,14 +23,11 @@ async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId
                     _ => (),
                 }
             }
-        }
-    };
-    let primary_gamepad = Some(primary_gamepad_future.await);
+        };
 
     println!("Press ○ on secondary gamepad");
 
-    let secondary_gamepad_future = async {
-        loop {
+    let secondary_gamepad = loop {
             if let Some(gilrs::Event { id, event, .. }) = gilrs.next_event() {
                 match event {
                     gilrs::EventType::ButtonPressed(gilrs::Button::East, _) => {
@@ -44,9 +37,7 @@ async fn get_gamepads(gilrs: &mut Gilrs) -> (Option<GamepadId>, Option<GamepadId
                     _ => (),
                 }
             }
-        }
-    };
-    let secondary_gamepad = Some(secondary_gamepad_future.await);
+        };
 
     (primary_gamepad, secondary_gamepad)
 }

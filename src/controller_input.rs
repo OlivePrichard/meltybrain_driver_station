@@ -90,11 +90,7 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
     controller_state
 }
 
-fn get_controller_state(gilrs: &Gilrs, id: Option<GamepadId>) -> ControllerState {
-    let Some(id) = id else {
-        println!("No gamepad id!");
-        return ControllerState::default();
-    };
+fn get_controller_state(gilrs: &Gilrs, id: GamepadId) -> ControllerState {
     if !gilrs.gamepad(id).is_connected() {
         println!("Gamepad not connected!");
         return ControllerState::default();
@@ -107,8 +103,8 @@ pub async fn read_controllers(
     cancel_signal: Receiver<bool>,
     inputs: Sender<(ControllerState, ControllerState)>,
     mut gilrs: Gilrs,
-    primary_id: Option<GamepadId>,
-    secondary_id: Option<GamepadId>,
+    primary_id: GamepadId,
+    secondary_id: GamepadId,
 ) {
     let mut next_time = Instant::now();
     let delay = Duration::from_millis(20);
