@@ -92,7 +92,8 @@ fn convert_gamepad(gamepad: Gamepad<'_>) -> ControllerState {
 
 fn get_controller_state(gilrs: &Gilrs, id: GamepadId) -> ControllerState {
     if !gilrs.gamepad(id).is_connected() {
-        println!("Gamepad not connected!");
+        let time = Instant::now();
+        println!("Gamepad not connected: {:?}", time);
         return ControllerState::default();
     }
 
